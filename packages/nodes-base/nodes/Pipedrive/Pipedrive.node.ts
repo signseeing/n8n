@@ -2503,6 +2503,39 @@ export class Pipedrive implements INodeType {
 						default: '',
 						description: 'Date when the lead’s deal is expected to be closed, in ISO-8601 format',
 					},
+					{
+						displayName: 'Custom Properties',
+						name: 'customProperties',
+						placeholder: 'Add Custom Property',
+						description: 'Adds a custom property to set also values which have not been predefined',
+						type: 'fixedCollection',
+						typeOptions: {
+							multipleValues: true,
+						},
+						default: {},
+						options: [
+							{
+								name: 'property',
+								displayName: 'Property',
+								values: [
+									{
+										displayName: 'Property Name',
+										name: 'name',
+										type: 'string',
+										default: '',
+										description: 'Name of the property to set',
+									},
+									{
+										displayName: 'Property Value',
+										name: 'value',
+										type: 'string',
+										default: '',
+										description: 'Value of the property to set',
+									},
+								],
+							},
+						],
+					},
 				],
 			},
 
@@ -3459,6 +3492,7 @@ export class Pipedrive implements INodeType {
 						resource: [
 							'activity',
 							'deal',
+							'lead',
 							'organization',
 							'person',
 							'product',
@@ -3481,6 +3515,7 @@ export class Pipedrive implements INodeType {
 						resource: [
 							'activity',
 							'deal',
+							'lead',
 							'organization',
 							'person',
 							'product',
@@ -4835,7 +4870,7 @@ export class Pipedrive implements INodeType {
 
 						// https://developers.pipedrive.com/docs/api/v1/Leads#updateLead
 
-						const { value, expected_close_date, ...rest } = this.getNodeParameter('updateFields', i) as {
+						/* const { value, expected_close_date, ...rest } = this.getNodeParameter('updateFields', i) as {
 							value: {
 								valueProperties: {
 									amount: number;
@@ -4845,9 +4880,6 @@ export class Pipedrive implements INodeType {
 							expected_close_date: string;
 						};
 
-						if (Object.keys(rest).length) {
-							Object.assign(body, rest);
-						}
 
 						if (value) {
 							Object.assign(body, { value: value.valueProperties });
@@ -4855,11 +4887,10 @@ export class Pipedrive implements INodeType {
 
 						if (expected_close_date) {
 							body.expected_close_date = expected_close_date.split('T')[0];
-						}
+						}*/ 
 
-						if (Object.keys(rest).length) {
-							Object.assign(body, rest);
-						}
+						const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
+						addAdditionalFields(body, updateFields);
 
 						const leadId = this.getNodeParameter('leadId', i);
 
