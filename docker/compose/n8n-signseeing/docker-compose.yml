@@ -1,10 +1,13 @@
 version: '3'
 
 services:
-  n8n:
+  n8n-signseeing:
     image: n8n-signseeing:latest
+    restart: always
     ports:
-      - '127.0.0.1:5678:5678'
+      - '5678:5678'
+    networks:
+      - my-proxy-net
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER
@@ -15,6 +18,29 @@ services:
       - NODE_ENV=production
       - N8N_PATH
       - WEBHOOK_URL=https://${DOMAIN_NAME}${N8N_PATH}
+      - VUE_APP_URL_BASE_API=https://${DOMAIN_NAME}${N8N_PATH}
+      - N8N_EMAIL_MODE=smtp
+      - N8N_SMTP_HOST=${N8N_SMTP_HOST}
+      - N8N_SMTP_PORT=${N8N_SMTP_PORT}
+      - N8N_SMTP_USER=${N8N_SMTP_USER}
+      - N8N_SMTP_PASS=${N8N_SMTP_PASS}
+      - N8N_SMTP_SSL=false
+      - N8N_SMTP_SENDER=${N8N_SMTP_SENDER}
+      - DB_SQLITE_VACUUM_ON_STARTUP=true
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=none
+      - EXECUTIONS_DATA_SAVE_ON_PROGRESS=true
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=false
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=90
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${DATA_FOLDER}/.n8n:/home/node/.n8n
+      - n8n_data:/home/node/.n8n
+networks:
+  my-proxy-net:
+    external:
+      name: custom_network
+volumes:
+  n8n_data:
+    external: true
+    name: n8n_data
