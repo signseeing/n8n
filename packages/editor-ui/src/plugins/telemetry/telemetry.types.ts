@@ -9,7 +9,6 @@ declare module 'vue/types/vue' {
 declare global {
 	interface Window {
 		rudderanalytics: RudderStack;
-		featureFlag: FeatureFlag;
 	}
 }
 
@@ -22,13 +21,6 @@ interface IUserNodesPanelSessionData {
 	nodeFilter: string;
 	resultsNodes: string[];
 	filterMode: string;
-}
-
-interface FeatureFlag {
-	getAll(): string[];
-	get(flagName: string): boolean | undefined;
-	isEnabled(flagName: string): boolean | undefined;
-	reload(): void;
 }
 
 /**
@@ -48,44 +40,19 @@ interface RudderStack extends Array<unknown> {
 	 * Native methods
 	 */
 
-	load(
-		writeKey: string,
-		dataPlaneUrl: string,
-		options?: object,
-	): void;
+	load(writeKey: string, dataPlaneUrl: string, options?: object): void;
 
 	ready(): void;
 
-	page(
-		category?: string,
-		name?: string,
-		properties?: object,
-		options?: object,
-	): void;
+	page(category?: string, name?: string, properties?: object, options?: object): void;
 
-	track(
-		event: string,
-		properties?: object,
-		options?: object,
-	): void;
+	track(event: string, properties?: object, options?: object): void;
 
-	identify(
-		id?: string,
-		traits?: object,
-		options?: object,
-	): void;
+	identify(id?: string, traits?: object, options?: object): void;
 
-	alias(
-		to: string,
-		from?: string,
-		options?: object,
-	): void;
+	alias(to: string, from?: string, options?: object): void;
 
-	group(
-		group: string,
-		traits?: object,
-		options?: object,
-	): void;
+	group(group: string, traits?: object, options?: object): void;
 
 	getAnonymousId(): void;
 

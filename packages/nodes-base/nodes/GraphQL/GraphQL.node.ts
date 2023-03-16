@@ -1,17 +1,16 @@
 /* eslint-disable n8n-nodes-base/node-filename-against-convention */
-import { IExecuteFunctions } from 'n8n-core';
-import {
+import type {
+	IExecuteFunctions,
 	IDataObject,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
 	JsonObject,
-	NodeApiError,
-	NodeOperationError,
 } from 'n8n-workflow';
+import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 
-import { OptionsWithUri } from 'request';
-import { RequestPromiseOptions } from 'request-promise-native';
+import type { OptionsWithUri } from 'request';
+import type { RequestPromiseOptions } from 'request-promise-native';
 
 export class GraphQL implements INodeType {
 	description: INodeTypeDescription = {
@@ -334,7 +333,6 @@ export class GraphQL implements INodeType {
 					'graphql',
 				) as string;
 				const responseFormat = this.getNodeParameter('responseFormat', 0) as string;
-
 				const { parameter }: { parameter?: Array<{ name: string; value: string }> } =
 					this.getNodeParameter('headerParametersUi', itemIndex, {}) as IDataObject;
 				const headerParameters = (parameter || []).reduce(
@@ -353,11 +351,7 @@ export class GraphQL implements INodeType {
 					method: requestMethod,
 					uri: endpoint,
 					simple: false,
-					rejectUnauthorized: !this.getNodeParameter(
-						'allowUnauthorizedCerts',
-						itemIndex,
-						false,
-					) as boolean,
+					rejectUnauthorized: !this.getNodeParameter('allowUnauthorizedCerts', itemIndex, false),
 				};
 
 				// Add credentials if any are set
@@ -374,7 +368,7 @@ export class GraphQL implements INodeType {
 					if (!requestOptions.qs) {
 						requestOptions.qs = {};
 					}
-					requestOptions.qs![httpQueryAuth.name as string] = httpQueryAuth.value;
+					requestOptions.qs[httpQueryAuth.name as string] = httpQueryAuth.value;
 				}
 				if (httpDigestAuth !== undefined) {
 					requestOptions.auth = {
@@ -399,14 +393,16 @@ export class GraphQL implements INodeType {
 						};
 						if (typeof requestOptions.body.variables === 'string') {
 							try {
-								requestOptions.body.variables = JSON.parse(requestOptions.body.variables || '{}');
+								requestOptions.body.variables = JSON.parse(
+									(requestOptions.body.variables as string) || '{}',
+								);
 							} catch (error) {
 								throw new NodeOperationError(
 									this.getNode(),
 									'Using variables failed:\n' +
-										requestOptions.body.variables +
+										(requestOptions.body.variables as string) +
 										'\n\nWith error message:\n' +
-										error,
+										(error as string),
 									{ itemIndex },
 								);
 							}
@@ -432,8 +428,7 @@ export class GraphQL implements INodeType {
 					response = await this.helpers.request(requestOptions);
 				}
 				if (responseFormat === 'string') {
-					const dataPropertyName = this.getNodeParameter('dataPropertyName', 0) as string;
-
+					const dataPropertyName = this.getNodeParameter('dataPropertyName', 0);
 					returnItems.push({
 						json: {
 							[dataPropertyName]: response,
@@ -456,14 +451,25 @@ export class GraphQL implements INodeType {
 						const message =
 							response.errors?.map((error: IDataObject) => error.message).join(', ') ||
 							'Unexpected error';
-						throw new NodeApiError(this.getNode(), response.errors, { message });
+						throw new NodeApiError(this.getNode(), response.errors as JsonObject, { message });
 					}
-
-					returnItems.push({ json: response });
+					const executionData = this.helpers.constructExecutionMetaData(
+						this.helpers.returnJsonArray(response as IDataObject),
+						{ itemData: { item: itemIndex } },
+					);
+					returnItems.push(...executionData);
 				}
 			} catch (error) {
 				if (this.continueOnFail()) {
-					returnItems.push({ json: { error: (error as JsonObject).message } });
+					const errorData = this.helpers.returnJsonArray({
+						$error: error,
+						json: this.getInputData(itemIndex),
+						itemIndex,
+					});
+					const exectionErrorWithMetaData = this.helpers.constructExecutionMetaData(errorData, {
+						itemData: { item: itemIndex },
+					});
+					returnItems.push(...exectionErrorWithMetaData);
 					continue;
 				}
 				throw error;

@@ -1,7 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import * as config from '../../../../config';
-import { runChunked } from '../../utils/migrationHelpers';
 import { v4 as uuid } from 'uuid';
+import { getTablePrefix, runInBatches } from '@db/utils/migrationHelpers';
 
 // add node ids in workflow objects
 
@@ -9,13 +8,7 @@ export class AddNodeIds1658932090381 implements MigrationInterface {
 	name = 'AddNodeIds1658932090381';
 
 	public async up(queryRunner: QueryRunner): Promise<void> {
-		let tablePrefix = config.getEnv('database.tablePrefix');
-		const schema = config.getEnv('database.postgresdb.schema');
-		if (schema) {
-			tablePrefix = schema + '.' + tablePrefix;
-		}
-
-		await queryRunner.query(`SET search_path TO ${schema};`);
+		const tablePrefix = getTablePrefix();
 
 		const workflowsQuery = `
 			SELECT id, nodes
@@ -23,7 +16,7 @@ export class AddNodeIds1658932090381 implements MigrationInterface {
 		`;
 
 		// @ts-ignore
-		await runChunked(queryRunner, workflowsQuery, (workflows) => {
+		await runInBatches(queryRunner, workflowsQuery, (workflows) => {
 			workflows.forEach(async (workflow) => {
 				const nodes = workflow.nodes;
 				// @ts-ignore
@@ -33,16 +26,15 @@ export class AddNodeIds1658932090381 implements MigrationInterface {
 					}
 				});
 
-				const [updateQuery, updateParams] =
-					queryRunner.connection.driver.escapeQueryWithParameters(
-						`
+				const [updateQuery, updateParams] = queryRunner.connection.driver.escapeQueryWithParameters(
+					`
 							UPDATE ${tablePrefix}workflow_entity
 							SET nodes = :nodes
 							WHERE id = '${workflow.id}'
 						`,
-						{ nodes: JSON.stringify(nodes) },
-						{},
-					);
+					{ nodes: JSON.stringify(nodes) },
+					{},
+				);
 
 				queryRunner.query(updateQuery, updateParams);
 			});
@@ -50,13 +42,7 @@ export class AddNodeIds1658932090381 implements MigrationInterface {
 	}
 
 	public async down(queryRunner: QueryRunner): Promise<void> {
-		let tablePrefix = config.getEnv('database.tablePrefix');
-		const schema = config.getEnv('database.postgresdb.schema');
-		if (schema) {
-			tablePrefix = schema + '.' + tablePrefix;
-		}
-
-		await queryRunner.query(`SET search_path TO ${schema};`);
+		const tablePrefix = getTablePrefix();
 
 		const workflowsQuery = `
 			SELECT id, nodes
@@ -64,22 +50,21 @@ export class AddNodeIds1658932090381 implements MigrationInterface {
 		`;
 
 		// @ts-ignore
-		await runChunked(queryRunner, workflowsQuery, (workflows) => {
+		await runInBatches(queryRunner, workflowsQuery, (workflows) => {
 			workflows.forEach(async (workflow) => {
 				const nodes = workflow.nodes;
 				// @ts-ignore
-				nodes.forEach((node) => delete node.id );
+				nodes.forEach((node) => delete node.id);
 
-				const [updateQuery, updateParams] =
-					queryRunner.connection.driver.escapeQueryWithParameters(
-						`
+				const [updateQuery, updateParams] = queryRunner.connection.driver.escapeQueryWithParameters(
+					`
 							UPDATE ${tablePrefix}workflow_entity
 							SET nodes = :nodes
 							WHERE id = '${workflow.id}'
 						`,
-						{ nodes: JSON.stringify(nodes) },
-						{},
-					);
+					{ nodes: JSON.stringify(nodes) },
+					{},
+				);
 
 				queryRunner.query(updateQuery, updateParams);
 			});

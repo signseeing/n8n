@@ -1,10 +1,14 @@
-import { Credentials, IExecuteFunctions } from 'n8n-core';
+import type {
+	IExecuteFunctions,
+	IDataObject,
+	ILoadOptionsFunctions,
+	JsonObject,
+} from 'n8n-workflow';
+import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 
-import { IDataObject, ILoadOptionsFunctions, NodeApiError, NodeOperationError } from 'n8n-workflow';
+import type { OptionsWithUri } from 'request';
 
-import { OptionsWithUri } from 'request';
-
-import { LoaderGetResponse } from './types';
+import type { LoaderGetResponse } from './types';
 
 export async function monicaCrmApiRequest(
 	this: IExecuteFunctions | ILoadOptionsFunctions,
@@ -23,7 +27,7 @@ export async function monicaCrmApiRequest(
 		throw new NodeOperationError(this.getNode(), 'No credentials got returned!');
 	}
 
-	let baseUrl = `https://app.monicahq.com`;
+	let baseUrl = 'https://app.monicahq.com';
 
 	if (credentials.environment === 'selfHosted') {
 		baseUrl = credentials.domain;
@@ -49,9 +53,9 @@ export async function monicaCrmApiRequest(
 	}
 
 	try {
-		return await this.helpers.request!(options);
+		return await this.helpers.request(options);
 	} catch (error) {
-		throw new NodeApiError(this.getNode(), error);
+		throw new NodeApiError(this.getNode(), error as JsonObject);
 	}
 }
 
@@ -67,18 +71,20 @@ export async function monicaCrmApiRequestAllItems(
 	const limit = this.getNodeParameter('limit', 0, 0) as number;
 
 	let totalItems = 0;
+	qs.page = 1;
+	qs.limit = 100;
 
 	let responseData;
 	const returnData: IDataObject[] = [];
 
 	do {
 		responseData = await monicaCrmApiRequest.call(this, method, endpoint, body, qs);
-		returnData.push(...responseData.data);
+		returnData.push(...(responseData.data as IDataObject[]));
 
 		if (!forLoader && !returnAll && returnData.length > limit) {
 			return returnData.slice(0, limit);
 		}
-
+		qs.page++;
 		totalItems = responseData.meta.total;
 	} while (totalItems > returnData.length);
 

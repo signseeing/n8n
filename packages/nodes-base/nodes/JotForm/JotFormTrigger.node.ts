@@ -1,8 +1,8 @@
 import * as formidable from 'formidable';
 
-import { IHookFunctions, IWebhookFunctions } from 'n8n-core';
-
-import {
+import type {
+	IHookFunctions,
+	IWebhookFunctions,
 	IDataObject,
 	ILoadOptionsFunctions,
 	INodePropertyOptions,
@@ -10,6 +10,7 @@ import {
 	INodeTypeDescription,
 	IWebhookResponseData,
 } from 'n8n-workflow';
+import { jsonParse } from 'n8n-workflow';
 
 import { jotformApiRequest } from './GenericFunctions';
 
@@ -100,6 +101,7 @@ export class JotFormTrigger implements INodeType {
 			},
 		},
 	};
+
 	// @ts-ignore
 	webhookMethods = {
 		default: {
@@ -111,13 +113,13 @@ export class JotFormTrigger implements INodeType {
 				try {
 					const responseData = await jotformApiRequest.call(this, 'GET', endpoint);
 
-					const webhookUrls = Object.values(responseData.content);
+					const webhookUrls = Object.values(responseData.content as IDataObject);
 					const webhookUrl = this.getNodeWebhookUrl('default');
 					if (!webhookUrls.includes(webhookUrl)) {
 						return false;
 					}
 
-					const webhookIds = Object.keys(responseData.content);
+					const webhookIds = Object.keys(responseData.content as IDataObject);
 					webhookData.webhookId = webhookIds[webhookUrls.indexOf(webhookUrl)];
 				} catch (error) {
 					return false;
@@ -134,7 +136,7 @@ export class JotFormTrigger implements INodeType {
 					//webhookURL: 'https://en0xsizp3qyt7f.x.pipedream.net/',
 				};
 				const { content } = await jotformApiRequest.call(this, 'POST', endpoint, body);
-				webhookData.webhookId = Object.keys(content)[0];
+				webhookData.webhookId = Object.keys(content as IDataObject)[0];
 				return true;
 			},
 			async delete(this: IHookFunctions): Promise<boolean> {
@@ -156,7 +158,6 @@ export class JotFormTrigger implements INodeType {
 		},
 	};
 
-	//@ts-ignore
 	async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
 		const req = this.getRequestObject();
 		const formId = this.getNodeParameter('form') as string;
@@ -165,14 +166,14 @@ export class JotFormTrigger implements INodeType {
 
 		const form = new formidable.IncomingForm({});
 
-		return new Promise((resolve, reject) => {
-			form.parse(req, async (err, data, files) => {
-				const rawRequest = JSON.parse(data.rawRequest as string);
+		return new Promise((resolve, _reject) => {
+			form.parse(req, async (err, data, _files) => {
+				const rawRequest = jsonParse<any>(data.rawRequest as string);
 				data.rawRequest = rawRequest;
 
 				let returnData: IDataObject;
-				if (resolveData === false) {
-					if (onlyAnswers === true) {
+				if (!resolveData) {
+					if (onlyAnswers) {
 						returnData = data.rawRequest as unknown as IDataObject;
 					} else {
 						returnData = data;
@@ -189,14 +190,16 @@ export class JotFormTrigger implements INodeType {
 
 				// Create a dictionary to resolve the keys
 				const questionNames: IDataObject = {};
-				for (const question of Object.values(responseData.content) as IQuestionData[]) {
+				for (const question of Object.values<IQuestionData>(
+					responseData.content as IQuestionData[],
+				)) {
 					questionNames[question.name] = question.text;
 				}
 
 				// Resolve the keys
 				let questionKey: string;
 				const questionsData: IDataObject = {};
-				for (const key of Object.keys(rawRequest)) {
+				for (const key of Object.keys(rawRequest as IDataObject)) {
 					if (!key.includes('_')) {
 						continue;
 					}
@@ -209,7 +212,7 @@ export class JotFormTrigger implements INodeType {
 					questionsData[questionNames[questionKey] as string] = rawRequest[key];
 				}
 
-				if (onlyAnswers === true) {
+				if (onlyAnswers) {
 					returnData = questionsData as unknown as IDataObject;
 				} else {
 					// @ts-ignore

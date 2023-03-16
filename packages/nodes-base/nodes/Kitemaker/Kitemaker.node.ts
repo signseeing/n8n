@@ -1,13 +1,12 @@
-import { IExecuteFunctions } from 'n8n-core';
-
-import {
+import type {
 	IDataObject,
+	IExecuteFunctions,
 	ILoadOptionsFunctions,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
-	NodeOperationError,
 } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
 
 import {
 	organizationOperations,
@@ -19,6 +18,7 @@ import {
 	workItemOperations,
 } from './descriptions';
 
+import type { LoadOptions } from './GenericFunctions';
 import { createLoadOptions, kitemakerRequest, kitemakerRequestAllItems } from './GenericFunctions';
 
 import {
@@ -103,7 +103,7 @@ export class Kitemaker implements INodeType {
 					},
 				} = responseData;
 
-				return createLoadOptions(spaces[0].labels);
+				return createLoadOptions(spaces[0].labels as LoadOptions[]);
 			},
 
 			async getSpaces(this: ILoadOptionsFunctions) {
@@ -114,7 +114,7 @@ export class Kitemaker implements INodeType {
 					},
 				} = responseData;
 
-				return createLoadOptions(spaces);
+				return createLoadOptions(spaces as LoadOptions[]);
 			},
 
 			async getStatuses(this: ILoadOptionsFunctions) {
@@ -134,7 +134,7 @@ export class Kitemaker implements INodeType {
 				} = responseData;
 				const space = spaces.find((e: { [x: string]: string }) => e.id === spaceId);
 
-				return createLoadOptions(space.statuses);
+				return createLoadOptions(space.statuses as LoadOptions[]);
 			},
 
 			async getUsers(this: ILoadOptionsFunctions) {
@@ -145,7 +145,7 @@ export class Kitemaker implements INodeType {
 					},
 				} = responseData;
 
-				return createLoadOptions(users);
+				return createLoadOptions(users as LoadOptions[]);
 			},
 
 			async getWorkItems(this: ILoadOptionsFunctions) {
@@ -162,7 +162,7 @@ export class Kitemaker implements INodeType {
 					},
 				} = responseData;
 
-				return createLoadOptions(workItems);
+				return createLoadOptions(workItems as LoadOptions[]);
 			},
 		},
 	};
@@ -174,7 +174,7 @@ export class Kitemaker implements INodeType {
 		const operation = this.getNodeParameter('operation', 0);
 
 		let responseData;
-		const returnData: IDataObject[] = [];
+		const returnData: INodeExecutionData[] = [];
 
 		// https://github.com/kitemakerhq/docs/blob/main/kitemaker.graphql
 
@@ -193,7 +193,7 @@ export class Kitemaker implements INodeType {
 						query: getOrganization,
 					});
 
-					returnData.push(responseData.data.organization);
+					responseData = responseData.data.organization;
 				}
 			} else if (resource === 'space') {
 				// *********************************************************************
@@ -210,7 +210,7 @@ export class Kitemaker implements INodeType {
 						variables: {},
 					});
 
-					returnData.push(...allItems);
+					responseData = allItems;
 				}
 			} else if (resource === 'user') {
 				// *********************************************************************
@@ -227,7 +227,7 @@ export class Kitemaker implements INodeType {
 						variables: {},
 					});
 
-					returnData.push(...allItems);
+					responseData = allItems;
 				}
 			} else if (resource === 'workItem') {
 				// *********************************************************************
@@ -252,7 +252,7 @@ export class Kitemaker implements INodeType {
 						);
 					}
 
-					const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+					const additionalFields = this.getNodeParameter('additionalFields', i);
 
 					if (Object.keys(additionalFields).length) {
 						Object.assign(input, additionalFields);
@@ -263,7 +263,7 @@ export class Kitemaker implements INodeType {
 						variables: { input },
 					});
 
-					returnData.push(responseData.data.createWorkItem.workItem);
+					responseData = responseData.data.createWorkItem.workItem;
 				} else if (operation === 'get') {
 					// ----------------------------------
 					//         workItem: get
@@ -276,7 +276,7 @@ export class Kitemaker implements INodeType {
 						variables: { workItemId },
 					});
 
-					returnData.push(responseData.data.workItem);
+					responseData = responseData.data.workItem;
 				} else if (operation === 'getAll') {
 					// ----------------------------------
 					//         workItem: getAll
@@ -289,7 +289,7 @@ export class Kitemaker implements INodeType {
 						},
 					});
 
-					returnData.push(...allItems);
+					responseData = allItems;
 				} else if (operation === 'update') {
 					// ----------------------------------
 					//         workItem: update
@@ -299,7 +299,7 @@ export class Kitemaker implements INodeType {
 						id: this.getNodeParameter('workItemId', i),
 					};
 
-					const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
+					const updateFields = this.getNodeParameter('updateFields', i);
 
 					if (!Object.keys(updateFields).length) {
 						throw new NodeOperationError(
@@ -316,11 +316,18 @@ export class Kitemaker implements INodeType {
 						variables: { input },
 					});
 
-					returnData.push(responseData.data.editWorkItem.workItem);
+					responseData = responseData.data.editWorkItem.workItem;
 				}
 			}
+
+			const executionData = this.helpers.constructExecutionMetaData(
+				this.helpers.returnJsonArray(responseData as IDataObject),
+				{ itemData: { item: i } },
+			);
+
+			returnData.push(...executionData);
 		}
 
-		return [this.helpers.returnJsonArray(returnData)];
+		return this.prepareOutputData(returnData);
 	}
 }

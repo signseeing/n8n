@@ -1,14 +1,13 @@
-import { IExecuteFunctions } from 'n8n-core';
-
-import {
+import type {
+	IExecuteFunctions,
 	IDataObject,
 	ILoadOptionsFunctions,
 	INodeExecutionData,
 	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
-	NodeOperationError,
 } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
 
 import { affiliateFields, affiliateOperations } from './AffiliateDescription';
 
@@ -81,8 +80,8 @@ export class Tapfiliate implements INodeType {
 				const programs = await tapfiliateApiRequestAllItems.call(this, 'GET', '/programs/');
 				for (const program of programs) {
 					returnData.push({
-						name: program.title,
-						value: program.id,
+						name: program.title as string,
+						value: program.id as string,
 					});
 				}
 				return returnData;
@@ -95,9 +94,9 @@ export class Tapfiliate implements INodeType {
 		const length = items.length;
 		const qs: IDataObject = {};
 		let responseData;
-		const returnData: IDataObject[] = [];
-		const resource = this.getNodeParameter('resource', 0) as string;
-		const operation = this.getNodeParameter('operation', 0) as string;
+		const returnData: INodeExecutionData[] = [];
+		const resource = this.getNodeParameter('resource', 0);
+		const operation = this.getNodeParameter('operation', 0);
 		for (let i = 0; i < length; i++) {
 			try {
 				if (resource === 'affiliate') {
@@ -106,7 +105,7 @@ export class Tapfiliate implements INodeType {
 						const firstname = this.getNodeParameter('firstname', i) as string;
 						const lastname = this.getNodeParameter('lastname', i) as string;
 						const email = this.getNodeParameter('email', i) as string;
-						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+						const additionalFields = this.getNodeParameter('additionalFields', i);
 						const body: IDataObject = {
 							firstname,
 							lastname,
@@ -131,7 +130,7 @@ export class Tapfiliate implements INodeType {
 							delete body.companyName;
 						}
 						responseData = await tapfiliateApiRequest.call(this, 'POST', '/affiliates/', body);
-						returnData.push(responseData);
+						returnData.push(responseData as INodeExecutionData);
 					}
 					if (operation === 'delete') {
 						//https://tapfiliate.com/docs/rest/#affiliates-affiliate-delete
@@ -141,7 +140,7 @@ export class Tapfiliate implements INodeType {
 							'DELETE',
 							`/affiliates/${affiliateId}/`,
 						);
-						returnData.push({ success: true });
+						responseData = { success: true };
 					}
 					if (operation === 'get') {
 						//https://tapfiliate.com/docs/rest/#affiliates-affiliate-get
@@ -151,27 +150,25 @@ export class Tapfiliate implements INodeType {
 							'GET',
 							`/affiliates/${affiliateId}/`,
 						);
-						returnData.push(responseData);
 					}
 					if (operation === 'getAll') {
 						//https://tapfiliate.com/docs/rest/#affiliates-affiliates-collection-get
-						const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-						const filters = this.getNodeParameter('filters', i) as IDataObject;
+						const returnAll = this.getNodeParameter('returnAll', i);
+						const filters = this.getNodeParameter('filters', i);
 						Object.assign(qs, filters);
 						if (returnAll) {
 							responseData = await tapfiliateApiRequestAllItems.call(
 								this,
 								'GET',
-								`/affiliates/`,
+								'/affiliates/',
 								{},
 								qs,
 							);
 						} else {
-							const limit = this.getNodeParameter('limit', i) as number;
-							responseData = await tapfiliateApiRequest.call(this, 'GET', `/affiliates/`, {}, qs);
+							const limit = this.getNodeParameter('limit', i);
+							responseData = await tapfiliateApiRequest.call(this, 'GET', '/affiliates/', {}, qs);
 							responseData = responseData.splice(0, limit);
 						}
-						returnData.push.apply(returnData, responseData);
 					}
 				}
 				if (resource === 'affiliateMetadata') {
@@ -179,8 +176,8 @@ export class Tapfiliate implements INodeType {
 						//https://tapfiliate.com/docs/rest/#affiliates-meta-data-key-put
 						const affiliateId = this.getNodeParameter('affiliateId', i) as string;
 						const metadata =
-							(((this.getNodeParameter('metadataUi', i) as IDataObject) || {})
-								.metadataValues as IDataObject[]) || [];
+							((this.getNodeParameter('metadataUi', i) as IDataObject)
+								?.metadataValues as IDataObject[]) || [];
 						if (metadata.length === 0) {
 							throw new NodeOperationError(this.getNode(), 'Metadata cannot be empty.', {
 								itemIndex: i,
@@ -194,7 +191,7 @@ export class Tapfiliate implements INodeType {
 								{ value },
 							);
 						}
-						returnData.push({ success: true });
+						responseData = { success: true };
 					}
 					if (operation === 'remove') {
 						//https://tapfiliate.com/docs/rest/#affiliates-meta-data-key-delete
@@ -205,7 +202,7 @@ export class Tapfiliate implements INodeType {
 							'DELETE',
 							`/affiliates/${affiliateId}/meta-data/${key}/`,
 						);
-						returnData.push({ success: true });
+						responseData = { success: true };
 					}
 					if (operation === 'update') {
 						//https://tapfiliate.com/docs/rest/#affiliates-notes-collection-get
@@ -218,7 +215,6 @@ export class Tapfiliate implements INodeType {
 							`/affiliates/${affiliateId}/meta-data/`,
 							{ [key]: value },
 						);
-						returnData.push(responseData);
 					}
 				}
 				if (resource === 'programAffiliate') {
@@ -226,7 +222,7 @@ export class Tapfiliate implements INodeType {
 						//https://tapfiliate.com/docs/rest/#programs-program-affiliates-collection-post
 						const programId = this.getNodeParameter('programId', i) as string;
 						const affiliateId = this.getNodeParameter('affiliateId', i) as string;
-						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+						const additionalFields = this.getNodeParameter('additionalFields', i);
 						const body: IDataObject = {
 							affiliate: {
 								id: affiliateId,
@@ -240,7 +236,6 @@ export class Tapfiliate implements INodeType {
 							`/programs/${programId}/affiliates/`,
 							body,
 						);
-						returnData.push(responseData);
 					}
 					if (operation === 'approve') {
 						//https://tapfiliate.com/docs/rest/#programs-approve-an-affiliate-for-a-program-put
@@ -251,7 +246,6 @@ export class Tapfiliate implements INodeType {
 							'PUT',
 							`/programs/${programId}/affiliates/${affiliateId}/approved/`,
 						);
-						returnData.push(responseData);
 					}
 					if (operation === 'disapprove') {
 						//https://tapfiliate.com/docs/rest/#programs-approve-an-affiliate-for-a-program-delete
@@ -262,7 +256,6 @@ export class Tapfiliate implements INodeType {
 							'DELETE',
 							`/programs/${programId}/affiliates/${affiliateId}/approved/`,
 						);
-						returnData.push(responseData);
 					}
 					if (operation === 'get') {
 						//https://tapfiliate.com/docs/rest/#programs-affiliate-in-program-get
@@ -273,13 +266,12 @@ export class Tapfiliate implements INodeType {
 							'GET',
 							`/programs/${programId}/affiliates/${affiliateId}/`,
 						);
-						returnData.push(responseData);
 					}
 					if (operation === 'getAll') {
 						//https://tapfiliate.com/docs/rest/#programs-program-affiliates-collection-get
 						const programId = this.getNodeParameter('programId', i) as string;
-						const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-						const filters = this.getNodeParameter('filters', i) as IDataObject;
+						const returnAll = this.getNodeParameter('returnAll', i);
+						const filters = this.getNodeParameter('filters', i);
 						Object.assign(qs, filters);
 						if (returnAll) {
 							responseData = await tapfiliateApiRequestAllItems.call(
@@ -290,7 +282,7 @@ export class Tapfiliate implements INodeType {
 								qs,
 							);
 						} else {
-							const limit = this.getNodeParameter('limit', i) as number;
+							const limit = this.getNodeParameter('limit', i);
 							responseData = await tapfiliateApiRequest.call(
 								this,
 								'GET',
@@ -300,17 +292,27 @@ export class Tapfiliate implements INodeType {
 							);
 							responseData = responseData.splice(0, limit);
 						}
-						returnData.push.apply(returnData, responseData);
 					}
 				}
+
+				const executionData = this.helpers.constructExecutionMetaData(
+					this.helpers.returnJsonArray(responseData as IDataObject[]),
+					{ itemData: { item: i } },
+				);
+
+				returnData.push(...executionData);
 			} catch (error) {
 				if (this.continueOnFail()) {
-					returnData.push({ error: error.message });
+					const executionErrorData = this.helpers.constructExecutionMetaData(
+						this.helpers.returnJsonArray({ error: error.message }),
+						{ itemData: { item: i } },
+					);
+					returnData.push(...executionErrorData);
 					continue;
 				}
 				throw error;
 			}
 		}
-		return [this.helpers.returnJsonArray(returnData)];
+		return this.prepareOutputData(returnData);
 	}
 }

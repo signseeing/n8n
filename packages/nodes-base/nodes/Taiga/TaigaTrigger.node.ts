@@ -1,5 +1,5 @@
-import {
-	ICredentialDataDecryptedObject,
+import type {
+	IHookFunctions,
 	IDataObject,
 	ILoadOptionsFunctions,
 	INodePropertyOptions,
@@ -8,8 +8,6 @@ import {
 	IWebhookFunctions,
 	IWebhookResponseData,
 } from 'n8n-workflow';
-
-import { IHookFunctions } from 'n8n-core';
 
 import { getAutomaticSecret, taigaApiRequest } from './GenericFunctions';
 
@@ -152,7 +150,7 @@ export class TaigaTrigger implements INodeType {
 
 				const webhookData = this.getWorkflowStaticData('node');
 
-				const endpoint = `/webhooks`;
+				const endpoint = '/webhooks';
 
 				const webhooks = await taigaApiRequest.call(this, 'GET', endpoint);
 

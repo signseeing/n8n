@@ -1,6 +1,6 @@
-import { IHookFunctions, IWebhookFunctions } from 'n8n-core';
-
-import {
+import type {
+	IHookFunctions,
+	IWebhookFunctions,
 	ILoadOptionsFunctions,
 	INodePropertyOptions,
 	INodeType,
@@ -21,7 +21,6 @@ export class LinearTrigger implements INodeType {
 		description: 'Starts the workflow when Linear events occur',
 		defaults: {
 			name: 'Linear Trigger',
-			color: '#D9DCF8',
 		},
 		inputs: [],
 		outputs: ['main'],
@@ -230,7 +229,7 @@ export class LinearTrigger implements INodeType {
 						return false;
 					}
 					// Remove from the static workflow data so that it is clear
-					// that no webhooks are registred anymore
+					// that no webhooks are registered anymore
 					delete webhookData.webhookId;
 				}
 				return true;

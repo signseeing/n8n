@@ -1,10 +1,10 @@
-import { ITriggerFunctions } from 'n8n-core';
-import {
+import type {
+	ITriggerFunctions,
 	INodeType,
 	INodeTypeDescription,
 	ITriggerResponse,
-	NodeOperationError,
 } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
 
 export class Interval implements INodeType {
 	description: INodeTypeDescription = {
@@ -13,6 +13,7 @@ export class Interval implements INodeType {
 		icon: 'fa:hourglass',
 		group: ['trigger', 'schedule'],
 		version: 1,
+		hidden: true,
 		description: 'Triggers the workflow in a given interval',
 		eventTriggerDescription: '',
 		activationMessage:
