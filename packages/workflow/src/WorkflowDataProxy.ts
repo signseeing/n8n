@@ -111,7 +111,7 @@ export class WorkflowDataProxy {
 		this.siblingParameters = siblingParameters;
 		this.mode = mode;
 		this.defaultTimezone = defaultTimezone;
-		this.timezone = (this.workflow.settings.timezone as string) || this.defaultTimezone;
+		this.timezone = workflow.settings?.timezone ?? defaultTimezone;
 		this.selfData = selfData;
 		this.additionalKeys = additionalKeys;
 		this.executeData = executeData;
@@ -719,18 +719,11 @@ export class WorkflowDataProxy {
 				};
 			}
 
-			const previousNodeHasPinData =
-				sourceData && this.workflow.getPinDataOfNode(sourceData.previousNode) !== undefined;
-
 			let currentPairedItem = pairedItem;
 
 			let nodeBeforeLast: string | undefined;
 
-			while (
-				!previousNodeHasPinData &&
-				sourceData !== null &&
-				destinationNodeName !== sourceData.previousNode
-			) {
+			while (sourceData !== null && destinationNodeName !== sourceData.previousNode) {
 				taskData =
 					that.runExecutionData!.resultData.runData[sourceData.previousNode][
 						sourceData?.previousNodeRun || 0

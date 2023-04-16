@@ -10,7 +10,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-
+import assert from 'assert';
 import { exec as callbackExec } from 'child_process';
 import { access as fsAccess } from 'fs/promises';
 import os from 'os';
@@ -19,6 +19,7 @@ import { createHmac } from 'crypto';
 import { promisify } from 'util';
 import cookieParser from 'cookie-parser';
 import express from 'express';
+import { engine as expressHandlebars } from 'express-handlebars';
 import type { ServeStaticOptions } from 'serve-static';
 import type { FindManyOptions } from 'typeorm';
 import { Not, In } from 'typeorm';
@@ -128,7 +129,7 @@ import { WaitTracker } from '@/WaitTracker';
 import * as WebhookHelpers from '@/WebhookHelpers';
 import * as WorkflowExecuteAdditionalData from '@/WorkflowExecuteAdditionalData';
 import { toHttpNodeParameters } from '@/CurlConverterHelper';
-import { eventBusRouter } from '@/eventbus/eventBusRoutes';
+import { EventBusController } from '@/eventbus/eventBus.controller';
 import { isLogStreamingEnabled } from '@/eventbus/MessageEventBus/MessageEventBusHelper';
 import { licenseController } from './license/license.controller';
 import { Push, setupPushServer, setupPushHandler } from '@/push';
@@ -156,6 +157,7 @@ import { getSamlLoginLabel, isSamlLoginEnabled, isSamlLicensed } from './sso/sam
 import { SamlController } from './sso/saml/routes/saml.controller.ee';
 import { SamlService } from './sso/saml/saml.service.ee';
 import { LdapManager } from './Ldap/LdapManager.ee';
+import { getCurrentAuthenticationMethod } from './sso/ssoHelpers';
 
 const exec = promisify(callbackExec);
 
@@ -182,6 +184,10 @@ class Server extends AbstractServer {
 
 	constructor() {
 		super();
+
+		this.app.engine('handlebars', expressHandlebars({ defaultLayout: false }));
+		this.app.set('view engine', 'handlebars');
+		this.app.set('views', TEMPLATES_DIR);
 
 		this.loadNodesAndCredentials = Container.get(LoadNodesAndCredentials);
 		this.credentialTypes = Container.get(CredentialTypes);
@@ -256,6 +262,8 @@ class Server extends AbstractServer {
 			},
 			personalizationSurveyEnabled:
 				config.getEnv('personalization.enabled') && config.getEnv('diagnostics.enabled'),
+			userActivationSurveyEnabled:
+				config.getEnv('userActivationSurvey.enabled') && config.getEnv('diagnostics.enabled'),
 			defaultLocale: config.getEnv('defaultLocale'),
 			userManagement: {
 				enabled: isUserManagementEnabled(),
@@ -264,6 +272,7 @@ class Server extends AbstractServer {
 					config.getEnv('userManagement.isInstanceOwnerSetUp') === false &&
 					config.getEnv('userManagement.skipInstanceOwnerSetup') === false,
 				smtpSetup: isEmailSetUp(),
+				authenticationMethod: getCurrentAuthenticationMethod(),
 			},
 			sso: {
 				saml: {
@@ -306,8 +315,8 @@ class Server extends AbstractServer {
 				sharing: false,
 				ldap: false,
 				saml: false,
-				logStreaming: config.getEnv('enterprise.features.logStreaming'),
-				advancedExecutionFilters: config.getEnv('enterprise.features.advancedExecutionFilters'),
+				logStreaming: false,
+				advancedExecutionFilters: false,
 			},
 			hideUsagePage: config.getEnv('hideUsagePage'),
 			license: {
@@ -323,6 +332,7 @@ class Server extends AbstractServer {
 		// refresh user management status
 		Object.assign(this.frontendSettings.userManagement, {
 			enabled: isUserManagementEnabled(),
+			authenticationMethod: getCurrentAuthenticationMethod(),
 			showSetupOnFirstLoad:
 				config.getEnv('userManagement.disabled') === false &&
 				config.getEnv('userManagement.isInstanceOwnerSetUp') === false &&
@@ -356,7 +366,6 @@ class Server extends AbstractServer {
 		if (config.get('nodes.packagesMissing').length > 0) {
 			this.frontendSettings.missingPackages = true;
 		}
-
 		return this.frontendSettings;
 	}
 
@@ -372,6 +381,7 @@ class Server extends AbstractServer {
 		const samlService = Container.get(SamlService);
 
 		const controllers: object[] = [
+			new EventBusController(),
 			new AuthController({ config, internalHooks, repositories, logger, postHog }),
 			new OwnerController({ config, internalHooks, repositories, logger }),
 			new MeController({ externalHooks, internalHooks, repositories, logger }),
@@ -435,8 +445,6 @@ class Server extends AbstractServer {
 			'assets',
 			'healthz',
 			'metrics',
-			'icons',
-			'types',
 			'e2e',
 			this.endpointWebhook,
 			this.endpointWebhookTest,
@@ -444,6 +452,11 @@ class Server extends AbstractServer {
 			config.getEnv('publicApi.disabled') ? publicApiEndpoint : '',
 			...excludeEndpoints.split(':'),
 		].filter((u) => !!u);
+
+		assert(
+			!ignoredEndpoints.includes(this.restEndpoint),
+			`REST endpoint cannot be set to any of these values: ${ignoredEndpoints.join()} `,
+		);
 
 		// eslint-disable-next-line no-useless-escape
 		const authIgnoreRegex = new RegExp(`^\/(${ignoredEndpoints.join('|')})\/?.*$`);
@@ -1226,8 +1239,6 @@ class Server extends AbstractServer {
 		if (!eventBus.isInitialized) {
 			await eventBus.initialize();
 		}
-		// add Event Bus REST endpoints
-		this.app.use(`/${this.restEndpoint}/eventbus`, eventBusRouter);
 
 		// ----------------------------------------
 		// Webhooks
