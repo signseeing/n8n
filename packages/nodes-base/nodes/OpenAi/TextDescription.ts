@@ -1,4 +1,5 @@
 import type { INodeExecutionData, INodeProperties } from 'n8n-workflow';
+import { sendErrorPostReceive } from './GenericFunctions';
 
 export const textOperations: INodeProperties[] = [
 	{
@@ -22,6 +23,7 @@ export const textOperations: INodeProperties[] = [
 						method: 'POST',
 						url: '/v1/completions',
 					},
+					output: { postReceive: [sendErrorPostReceive] },
 				},
 			},
 			{
@@ -34,6 +36,7 @@ export const textOperations: INodeProperties[] = [
 						method: 'POST',
 						url: '/v1/edits',
 					},
+					output: { postReceive: [sendErrorPostReceive] },
 				},
 			},
 			{
@@ -46,6 +49,7 @@ export const textOperations: INodeProperties[] = [
 						method: 'POST',
 						url: '/v1/moderations',
 					},
+					output: { postReceive: [sendErrorPostReceive] },
 				},
 			},
 		],
@@ -247,7 +251,7 @@ const moderateOperations: INodeProperties[] = [
 		displayName: 'Input',
 		name: 'input',
 		type: 'string',
-		placeholder: 'e.g. I want to kill them',
+		placeholder: 'e.g. My cat is adorable ❤️❤️',
 		description: 'The input text to classify',
 		displayOptions: {
 			show: {
