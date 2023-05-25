@@ -33,6 +33,7 @@ services:
       - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=false
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=90
+      - NODE_FUNCTION_ALLOW_EXTERNAL=rrule
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - n8n_data:/home/node/.n8n
