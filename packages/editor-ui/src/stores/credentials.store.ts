@@ -1,4 +1,12 @@
-import type { INodeUi, IUsedCredential } from '../Interface';
+import type {
+	INodeUi,
+	IUsedCredential,
+	ICredentialMap,
+	ICredentialsDecryptedResponse,
+	ICredentialsResponse,
+	ICredentialsState,
+	ICredentialTypeMap,
+} from '../Interface';
 import {
 	createNewCredential,
 	deleteCredential,
@@ -15,24 +23,15 @@ import { setCredentialSharedWith } from '@/api/credentials.ee';
 import { makeRestApiRequest } from '@/utils/apiUtils';
 import { getAppNameFromCredType } from '@/utils/nodeTypesUtils';
 import { EnterpriseEditionFeature, STORES } from '@/constants';
-import type {
-	ICredentialMap,
-	ICredentialsDecryptedResponse,
-	ICredentialsResponse,
-	ICredentialsState,
-	ICredentialTypeMap,
-} from '@/Interface';
 import { i18n } from '@/plugins/i18n';
 import type {
 	ICredentialsDecrypted,
 	ICredentialType,
 	INodeCredentialTestResult,
-	INodeProperties,
 	INodeTypeDescription,
 	IUser,
 } from 'n8n-workflow';
 import { defineStore } from 'pinia';
-import Vue from 'vue';
 import { useRootStore } from './n8nRoot.store';
 import { useNodeTypesStore } from './nodeTypes.store';
 import { useSettingsStore } from './settings.store';
@@ -78,7 +77,7 @@ export const useCredentialsStore = defineStore(STORES.CREDENTIALS, {
 			return (node: INodeUi): ICredentialsResponse[] => {
 				let credentials: ICredentialsResponse[] = [];
 				const nodeType = useNodeTypesStore().getNodeType(node.type, node.typeVersion);
-				if (nodeType && nodeType.credentials) {
+				if (nodeType?.credentials) {
 					nodeType.credentials.forEach((cred) => {
 						credentials = credentials.concat(this.allUsableCredentialsByType[cred.name]);
 					});
@@ -107,7 +106,7 @@ export const useCredentialsStore = defineStore(STORES.CREDENTIALS, {
 			);
 		},
 		getCredentialTypeByName() {
-			return (type: string): ICredentialType => this.credentialTypes[type];
+			return (type: string): ICredentialType | undefined => this.credentialTypes[type];
 		},
 		getCredentialById() {
 			return (id: string): ICredentialsResponse => this.credentials[id];
@@ -150,9 +149,10 @@ export const useCredentialsStore = defineStore(STORES.CREDENTIALS, {
 		},
 		getScopesByCredentialType() {
 			return (credentialTypeName: string) => {
-				const credentialType = this.getCredentialTypeByName(credentialTypeName) as {
-					properties: INodeProperties[];
-				};
+				const credentialType = this.getCredentialTypeByName(credentialTypeName);
+				if (!credentialType) {
+					return [];
+				}
 
 				const scopeProperty = credentialType.properties.find((p) => p.name === 'scope');
 
@@ -220,17 +220,20 @@ export const useCredentialsStore = defineStore(STORES.CREDENTIALS, {
 		},
 		upsertCredential(credential: ICredentialsResponse): void {
 			if (credential.id) {
-				Vue.set(this.credentials, credential.id, {
-					...this.credentials[credential.id],
-					...credential,
-				});
+				this.credentials = {
+					...this.credentials,
+					[credential.id]: {
+						...this.credentials[credential.id],
+						...credential,
+					},
+				};
 			}
 		},
 		enableOAuthCredential(credential: ICredentialsResponse): void {
 			// enable oauth event to track change between modals
 		},
 		async fetchCredentialTypes(forceFetch: boolean): Promise<void> {
-			if (this.allCredentialTypes.length > 0 && forceFetch !== true) {
+			if (this.allCredentialTypes.length > 0 && !forceFetch) {
 				return;
 			}
 			const rootStore = useRootStore();
@@ -314,7 +317,8 @@ export const useCredentialsStore = defineStore(STORES.CREDENTIALS, {
 			const rootStore = useRootStore();
 			const deleted = await deleteCredential(rootStore.getRestApiContext, id);
 			if (deleted) {
-				Vue.delete(this.credentials, id);
+				const { [id]: deletedCredential, ...rest } = this.credentials;
+				this.credentials = rest;
 			}
 		},
 		async oAuth2Authorize(data: ICredentialsResponse): Promise<string> {
@@ -334,8 +338,8 @@ export const useCredentialsStore = defineStore(STORES.CREDENTIALS, {
 				const { credentialTypeName } = params;
 				let newName = DEFAULT_CREDENTIAL_NAME;
 				if (!TYPES_WITH_DEFAULT_NAME.includes(credentialTypeName)) {
-					const { displayName } = this.getCredentialTypeByName(credentialTypeName);
-					newName = getAppNameFromCredType(displayName);
+					const cred = this.getCredentialTypeByName(credentialTypeName);
+					newName = cred ? getAppNameFromCredType(cred.displayName) : '';
 					newName =
 						newName.length > 0
 							? `${newName} ${DEFAULT_CREDENTIAL_POSTFIX}`
@@ -351,31 +355,38 @@ export const useCredentialsStore = defineStore(STORES.CREDENTIALS, {
 
 		// Enterprise edition actions
 		setCredentialOwnedBy(payload: { credentialId: string; ownedBy: Partial<IUser> }) {
-			Vue.set(this.credentials[payload.credentialId], 'ownedBy', payload.ownedBy);
+			this.credentials[payload.credentialId] = {
+				...this.credentials[payload.credentialId],
+				ownedBy: payload.ownedBy,
+			};
 		},
 		async setCredentialSharedWith(payload: { sharedWith: IUser[]; credentialId: string }) {
 			if (useSettingsStore().isEnterpriseFeatureEnabled(EnterpriseEditionFeature.Sharing)) {
 				await setCredentialSharedWith(useRootStore().getRestApiContext, payload.credentialId, {
 					shareWithIds: payload.sharedWith.map((sharee) => sharee.id),
 				});
-				Vue.set(this.credentials[payload.credentialId], 'sharedWith', payload.sharedWith);
+
+				this.credentials[payload.credentialId] = {
+					...this.credentials[payload.credentialId],
+					sharedWith: payload.sharedWith,
+				};
 			}
 		},
 		addCredentialSharee(payload: { credentialId: string; sharee: Partial<IUser> }): void {
-			Vue.set(
-				this.credentials[payload.credentialId],
-				'sharedWith',
-				(this.credentials[payload.credentialId].sharedWith || []).concat([payload.sharee]),
-			);
+			this.credentials[payload.credentialId] = {
+				...this.credentials[payload.credentialId],
+				sharedWith: (this.credentials[payload.credentialId].sharedWith || []).concat([
+					payload.sharee,
+				]),
+			};
 		},
 		removeCredentialSharee(payload: { credentialId: string; sharee: Partial<IUser> }): void {
-			Vue.set(
-				this.credentials[payload.credentialId],
-				'sharedWith',
-				(this.credentials[payload.credentialId].sharedWith || []).filter(
+			this.credentials[payload.credentialId] = {
+				...this.credentials[payload.credentialId],
+				sharedWith: (this.credentials[payload.credentialId].sharedWith || []).filter(
 					(sharee) => sharee.id !== payload.sharee.id,
 				),
-			);
+			};
 		},
 
 		async getCredentialTranslation(credentialType: string): Promise<object> {

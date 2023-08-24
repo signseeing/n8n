@@ -41,24 +41,20 @@ export const executionHelpers = defineComponent({
 				runningTime: '',
 			};
 
-			if (execution.status === 'waiting' || execution.waitTill) {
+			if (execution.status === 'waiting') {
 				status.name = 'waiting';
 				status.label = this.$locale.baseText('executionsList.waiting');
-			} else if (
-				execution.status === 'running' ||
-				execution.status === 'new' ||
-				execution.stoppedAt === undefined
-			) {
+			} else if (execution.status === 'canceled') {
+				status.label = this.$locale.baseText('executionsList.canceled');
+			} else if (execution.status === 'running' || execution.status === 'new') {
 				status.name = 'running';
 				status.label = this.$locale.baseText('executionsList.running');
-			} else if (execution.status === 'success' || execution.finished) {
+			} else if (execution.status === 'success') {
 				status.name = 'success';
 				status.label = this.$locale.baseText('executionsList.succeeded');
 			} else if (execution.status === 'failed' || execution.status === 'crashed') {
 				status.name = 'error';
 				status.label = this.$locale.baseText('executionsList.error');
-			} else if (execution.status === 'canceled') {
-				status.label = this.$locale.baseText('executionsList.canceled');
 			}
 
 			if (!execution.status) execution.status = 'unknown';

@@ -34,13 +34,6 @@ export const useSegment = defineStore('segment', () => {
 		}
 	};
 
-	const showAppCuesChecklist = () => {
-		const isInIframe = window.location !== window.parent.location;
-		if (isInIframe) {
-			return;
-		}
-	};
-
 	const trackAddedTrigger = (nodeTypeName: string) => {
 		if (!nodeTypesStore.isTriggerNode(nodeTypeName)) {
 			return;
@@ -120,7 +113,6 @@ export const useSegment = defineStore('segment', () => {
 	};
 
 	return {
-		showAppCuesChecklist,
 		track,
 		trackAddedTrigger,
 		trackSuccessfulWorkflowExecution,

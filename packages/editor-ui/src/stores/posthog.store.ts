@@ -4,12 +4,8 @@ import { defineStore } from 'pinia';
 import { useUsersStore } from '@/stores/users.store';
 import { useRootStore } from '@/stores/n8nRoot.store';
 import { useSettingsStore } from '@/stores/settings.store';
-import type { FeatureFlags } from 'n8n-workflow';
-import {
-	EXPERIMENTS_TO_TRACK,
-	LOCAL_STORAGE_EXPERIMENT_OVERRIDES,
-	TEMPLATE_EXPERIMENT,
-} from '@/constants';
+import type { FeatureFlags, IDataObject } from 'n8n-workflow';
+import { EXPERIMENTS_TO_TRACK, LOCAL_STORAGE_EXPERIMENT_OVERRIDES } from '@/constants';
 import { useTelemetryStore } from './telemetry.store';
 import { debounce } from 'lodash-es';
 
@@ -116,6 +112,9 @@ export const usePostHog = defineStore('posthog', () => {
 			autocapture: config.autocapture,
 			disable_session_recording: config.disableSessionRecording,
 			debug: config.debug,
+			session_recording: {
+				maskAllInputs: false,
+			},
 		};
 
 		window.posthog?.init(config.apiKey, options);
@@ -131,7 +130,6 @@ export const usePostHog = defineStore('posthog', () => {
 			// does not need to be debounced really, but tracking does not fire without delay on page load
 			addExperimentOverrides();
 			trackExperimentsDebounced(featureFlags.value);
-			evaluateExperiments(featureFlags.value);
 		} else {
 			// depend on client side evaluation if serverside evaluation fails
 			window.posthog?.onFeatureFlags?.((keys: string[], map: FeatureFlags) => {
@@ -140,20 +138,9 @@ export const usePostHog = defineStore('posthog', () => {
 
 				// must be debounced because it is called multiple times by posthog
 				trackExperimentsDebounced(featureFlags.value);
-				evaluateExperimentsDebounced(featureFlags.value);
 			});
 		}
 	};
-
-	const evaluateExperiments = (featureFlags: FeatureFlags) => {
-		Object.keys(featureFlags).forEach((name) => {
-			const variant = featureFlags[name];
-			if (name === TEMPLATE_EXPERIMENT.name && variant === TEMPLATE_EXPERIMENT.variant) {
-				settingsStore.disableTemplates();
-			}
-		});
-	};
-	const evaluateExperimentsDebounced = debounce(evaluateExperiments, 2000);
 
 	const trackExperiments = (featureFlags: FeatureFlags) => {
 		EXPERIMENTS_TO_TRACK.forEach((name) => trackExperiment(featureFlags, name));
@@ -174,10 +161,29 @@ export const usePostHog = defineStore('posthog', () => {
 		trackedDemoExp.value[name] = variant;
 	};
 
+	const capture = (event: string, properties: IDataObject) => {
+		if (typeof window.posthog?.capture === 'function') {
+			window.posthog.capture(event, properties);
+		}
+	};
+
+	const setMetadata = (metadata: IDataObject, target: 'user' | 'events') => {
+		if (typeof window.posthog?.people?.set !== 'function') return;
+		if (typeof window.posthog?.register !== 'function') return;
+
+		if (target === 'user') {
+			window.posthog?.people?.set(metadata);
+		} else if (target === 'events') {
+			window.posthog?.register(metadata);
+		}
+	};
+
 	return {
 		init,
 		isVariantEnabled,
 		getVariant,
 		reset,
+		capture,
+		setMetadata,
 	};
 });

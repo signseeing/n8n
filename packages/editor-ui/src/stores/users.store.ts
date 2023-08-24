@@ -2,25 +2,25 @@ import {
 	changePassword,
 	deleteUser,
 	getInviteLink,
+	getPasswordResetLink,
 	getUsers,
 	inviteUsers,
 	login,
 	loginCurrentUser,
 	logout,
-	preOwnerSetup,
 	reinvite,
 	sendForgotPasswordEmail,
 	setupOwner,
 	signup,
-	skipOwnerSetup,
 	submitPersonalizationSurvey,
 	updateCurrentUser,
 	updateCurrentUserPassword,
 	updateCurrentUserSettings,
+	updateOtherUserSettings,
 	validatePasswordToken,
 	validateSignupToken,
 } from '@/api/users';
-import { PERSONALIZATION_MODAL_KEY, USER_ACTIVATION_SURVEY_MODAL, STORES } from '@/constants';
+import { PERSONALIZATION_MODAL_KEY, STORES } from '@/constants';
 import type {
 	ICredentialsResponse,
 	IInviteResponse,
@@ -33,11 +33,11 @@ import type {
 import { getCredentialPermissions } from '@/permissions';
 import { getPersonalizedNodeTypes, isAuthorized, PERMISSIONS, ROLE } from '@/utils';
 import { defineStore } from 'pinia';
-import Vue from 'vue';
 import { useRootStore } from './n8nRoot.store';
 import { usePostHog } from './posthog.store';
 import { useSettingsStore } from './settings.store';
 import { useUIStore } from './ui.store';
+import { useCloudPlanStore } from './cloudPlan.store';
 
 const isDefaultUser = (user: IUserResponse | null) =>
 	Boolean(user && user.isPending && user.globalRole && user.globalRole.name === ROLE.Owner);
@@ -131,17 +131,29 @@ export const useUsersStore = defineStore(STORES.USERS, {
 					isPendingUser: isPendingUser(updatedUser),
 					isOwner: updatedUser.globalRole?.name === ROLE.Owner,
 				};
-				Vue.set(this.users, user.id, user);
+
+				this.users = {
+					...this.users,
+					[user.id]: user,
+				};
 			});
 		},
 		deleteUserById(userId: string): void {
-			Vue.delete(this.users, userId);
+			const { [userId]: _, ...users } = this.users;
+			this.users = users;
 		},
 		setPersonalizationAnswers(answers: IPersonalizationLatestVersion): void {
 			if (!this.currentUser) {
 				return;
 			}
-			Vue.set(this.currentUser, 'personalizationAnswers', answers);
+
+			this.users = {
+				...this.users,
+				[this.currentUser.id]: {
+					...this.currentUser,
+					personalizationAnswers: answers,
+				},
+			};
 		},
 		async loginWithCookie(): Promise<void> {
 			const rootStore = useRootStore();
@@ -171,10 +183,9 @@ export const useUsersStore = defineStore(STORES.USERS, {
 			const rootStore = useRootStore();
 			await logout(rootStore.getRestApiContext);
 			this.currentUserId = null;
+			useCloudPlanStore().reset();
 			usePostHog().reset();
-		},
-		async preOwnerSetup() {
-			return preOwnerSetup(useRootStore().getRestApiContext);
+			await useUIStore().dismissAllBanners();
 		},
 		async createOwner(params: {
 			firstName: string;
@@ -189,6 +200,7 @@ export const useUsersStore = defineStore(STORES.USERS, {
 				this.addUsers([user]);
 				this.currentUserId = user.id;
 				settingsStore.stopShowingSetupPage();
+				usePostHog().init(user.featureFlags);
 			}
 		},
 		async validateSignupToken(params: {
@@ -210,23 +222,18 @@ export const useUsersStore = defineStore(STORES.USERS, {
 			if (user) {
 				this.addUsers([user]);
 				this.currentUserId = user.id;
+				usePostHog().init(user.featureFlags);
 			}
-
-			usePostHog().init(user.featureFlags);
 		},
 		async sendForgotPasswordEmail(params: { email: string }): Promise<void> {
 			const rootStore = useRootStore();
 			await sendForgotPasswordEmail(rootStore.getRestApiContext, params);
 		},
-		async validatePasswordToken(params: { token: string; userId: string }): Promise<void> {
+		async validatePasswordToken(params: { token: string }): Promise<void> {
 			const rootStore = useRootStore();
 			await validatePasswordToken(rootStore.getRestApiContext, params);
 		},
-		async changePassword(params: {
-			token: string;
-			password: string;
-			userId: string;
-		}): Promise<void> {
+		async changePassword(params: { token: string; password: string }): Promise<void> {
 			const rootStore = useRootStore();
 			await changePassword(rootStore.getRestApiContext, params);
 		},
@@ -250,6 +257,19 @@ export const useUsersStore = defineStore(STORES.USERS, {
 				this.currentUser.settings = updatedSettings;
 				this.addUsers([this.currentUser]);
 			}
+		},
+		async updateOtherUserSettings(
+			userId: string,
+			settings: IUserResponse['settings'],
+		): Promise<void> {
+			const rootStore = useRootStore();
+			const updatedSettings = await updateOtherUserSettings(
+				rootStore.getRestApiContext,
+				userId,
+				settings,
+			);
+			this.users[userId].settings = updatedSettings;
+			this.addUsers([this.users[userId]]);
 		},
 		async updateCurrentUserPassword({
 			password,
@@ -288,6 +308,10 @@ export const useUsersStore = defineStore(STORES.USERS, {
 			const rootStore = useRootStore();
 			return getInviteLink(rootStore.getRestApiContext, params);
 		},
+		async getUserPasswordResetLink(params: { id: string }): Promise<{ link: string }> {
+			const rootStore = useRootStore();
+			return getPasswordResetLink(rootStore.getRestApiContext, params);
+		},
 		async submitPersonalizationSurvey(results: IPersonalizationLatestVersion): Promise<void> {
 			const rootStore = useRootStore();
 			await submitPersonalizationSurvey(rootStore.getRestApiContext, results);
@@ -301,24 +325,6 @@ export const useUsersStore = defineStore(STORES.USERS, {
 				const uiStore = useUIStore();
 				uiStore.openModal(PERSONALIZATION_MODAL_KEY);
 			}
-		},
-		async showUserActivationSurveyModal() {
-			const settingsStore = useSettingsStore();
-			if (settingsStore.isUserActivationSurveyEnabled) {
-				const currentUser = this.currentUser;
-				if (currentUser?.settings?.showUserActivationSurvey) {
-					const uiStore = useUIStore();
-					uiStore.openModal(USER_ACTIVATION_SURVEY_MODAL);
-				}
-			}
-		},
-		async skipOwnerSetup(): Promise<void> {
-			try {
-				const rootStore = useRootStore();
-				const settingsStore = useSettingsStore();
-				settingsStore.stopShowingSetupPage();
-				await skipOwnerSetup(rootStore.getRestApiContext);
-			} catch (error) {}
 		},
 	},
 });

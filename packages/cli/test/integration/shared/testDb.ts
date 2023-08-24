@@ -20,7 +20,6 @@ import type { Role } from '@db/entities/Role';
 import type { TagEntity } from '@db/entities/TagEntity';
 import type { User } from '@db/entities/User';
 import type { WorkflowEntity } from '@db/entities/WorkflowEntity';
-import { RoleRepository } from '@db/repositories';
 import type { ICredentialsDb } from '@/Interfaces';
 
 import { DB_INITIALIZATION_TIMEOUT } from './constants';
@@ -32,6 +31,12 @@ import type {
 	InstalledPackagePayload,
 	PostgresSchemaSection,
 } from './types';
+import type { ExecutionData } from '@db/entities/ExecutionData';
+import { generateNanoId } from '@db/utils/generators';
+import { RoleService } from '@/services/role.service';
+import { VariablesService } from '@/environments/variables/variables.service';
+import { TagRepository, WorkflowTagMappingRepository } from '@/databases/repositories';
+import { separate } from '@/utils';
 
 export type TestDBType = 'postgres' | 'mysql';
 
@@ -59,9 +64,7 @@ export async function init() {
 	if (dbType === 'sqlite') {
 		// no bootstrap connection required
 		await Db.init(getSqliteOptions({ name: testDbName }));
-	}
-
-	if (dbType === 'postgresdb') {
+	} else if (dbType === 'postgresdb') {
 		let bootstrapPostgres;
 		const pgOptions = getBootstrapDBOptions('postgres');
 
@@ -90,9 +93,7 @@ export async function init() {
 		await bootstrapPostgres.destroy();
 
 		await Db.init(getDBOptions('postgres', testDbName));
-	}
-
-	if (dbType === 'mysqldb') {
+	} else if (dbType === 'mysqldb' || dbType === 'mariadb') {
 		const bootstrapMysql = await new Connection(getBootstrapDBOptions('mysql')).initialize();
 		await bootstrapMysql.query(`CREATE DATABASE ${testDbName}`);
 		await bootstrapMysql.destroy();
@@ -114,7 +115,14 @@ export async function terminate() {
  * Truncate specific DB tables in a test DB.
  */
 export async function truncate(collections: CollectionName[]) {
-	for (const collection of collections) {
+	const [tag, rest] = separate(collections, (c) => c === 'Tag');
+
+	if (tag) {
+		await Container.get(TagRepository).delete({});
+		await Container.get(WorkflowTagMappingRepository).delete({});
+	}
+
+	for (const collection of rest) {
 		await Db.collections[collection].delete({});
 	}
 }
@@ -152,7 +160,7 @@ export async function saveCredential(
 }
 
 export async function shareCredentialWithUsers(credential: CredentialsEntity, users: User[]) {
-	const role = await Container.get(RoleRepository).findCredentialUserRole();
+	const role = await Container.get(RoleService).findCredentialUserRole();
 	const newSharedCredentials = users.map((user) =>
 		Db.collections.SharedCredentials.create({
 			userId: user.id,
@@ -183,6 +191,7 @@ export async function createUser(attributes: Partial<User> = {}): Promise<User> 
 		firstName: firstName ?? randomName(),
 		lastName: lastName ?? randomName(),
 		globalRoleId: (globalRole ?? (await getGlobalMemberRole())).id,
+		globalRole,
 		...rest,
 	};
 
@@ -220,7 +229,6 @@ export async function createManyUsers(
 	amount: number,
 	attributes: Partial<User> = {},
 ): Promise<User[]> {
-	// eslint-disable-next-line prefer-const
 	let { email, password, firstName, lastName, globalRole, ...rest } = attributes;
 	if (!globalRole) {
 		globalRole = await getGlobalMemberRole();
@@ -277,23 +285,23 @@ export async function addApiKey(user: User): Promise<User> {
 // ----------------------------------
 
 export async function getGlobalOwnerRole() {
-	return Container.get(RoleRepository).findGlobalOwnerRoleOrFail();
+	return Container.get(RoleService).findGlobalOwnerRole();
 }
 
 export async function getGlobalMemberRole() {
-	return Container.get(RoleRepository).findGlobalMemberRoleOrFail();
+	return Container.get(RoleService).findGlobalMemberRole();
 }
 
 export async function getWorkflowOwnerRole() {
-	return Container.get(RoleRepository).findWorkflowOwnerRoleOrFail();
+	return Container.get(RoleService).findWorkflowOwnerRole();
 }
 
 export async function getWorkflowEditorRole() {
-	return Container.get(RoleRepository).findWorkflowEditorRoleOrFail();
+	return Container.get(RoleService).findWorkflowEditorRole();
 }
 
 export async function getCredentialOwnerRole() {
-	return Container.get(RoleRepository).findCredentialOwnerRoleOrFail();
+	return Container.get(RoleService).findCredentialOwnerRole();
 }
 
 export async function getAllRoles() {
@@ -332,17 +340,26 @@ export async function createManyExecutions(
 /**
  * Store a execution in the DB and assign it to a workflow.
  */
-async function createExecution(attributes: Partial<ExecutionEntity>, workflow: WorkflowEntity) {
-	const { data, finished, mode, startedAt, stoppedAt, waitTill } = attributes;
+async function createExecution(
+	attributes: Partial<ExecutionEntity & ExecutionData>,
+	workflow: WorkflowEntity,
+) {
+	const { data, finished, mode, startedAt, stoppedAt, waitTill, status } = attributes;
 
 	const execution = await Db.collections.Execution.save({
-		data: data ?? '[]',
 		finished: finished ?? true,
 		mode: mode ?? 'manual',
 		startedAt: startedAt ?? new Date(),
-		...(workflow !== undefined && { workflowData: workflow, workflowId: workflow.id }),
+		...(workflow !== undefined && { workflowId: workflow.id }),
 		stoppedAt: stoppedAt ?? new Date(),
 		waitTill: waitTill ?? null,
+		status,
+	});
+
+	await Db.collections.ExecutionData.save({
+		data: data ?? '[]',
+		workflowData: workflow ?? {},
+		executionId: execution.id,
 	});
 
 	return execution;
@@ -352,34 +369,45 @@ async function createExecution(attributes: Partial<ExecutionEntity>, workflow: W
  * Store a successful execution in the DB and assign it to a workflow.
  */
 export async function createSuccessfulExecution(workflow: WorkflowEntity) {
-	return createExecution({ finished: true }, workflow);
+	return createExecution({ finished: true, status: 'success' }, workflow);
 }
 
 /**
  * Store an error execution in the DB and assign it to a workflow.
  */
 export async function createErrorExecution(workflow: WorkflowEntity) {
-	return createExecution({ finished: false, stoppedAt: new Date() }, workflow);
+	return createExecution({ finished: false, stoppedAt: new Date(), status: 'failed' }, workflow);
 }
 
 /**
  * Store a waiting execution in the DB and assign it to a workflow.
  */
 export async function createWaitingExecution(workflow: WorkflowEntity) {
-	return createExecution({ finished: false, waitTill: new Date() }, workflow);
+	return createExecution({ finished: false, waitTill: new Date(), status: 'waiting' }, workflow);
 }
 
 // ----------------------------------
 //          Tags
 // ----------------------------------
 
-export async function createTag(attributes: Partial<TagEntity> = {}) {
+export async function createTag(attributes: Partial<TagEntity> = {}, workflow?: WorkflowEntity) {
 	const { name } = attributes;
 
-	return Db.collections.Tag.save({
+	const tag = await Container.get(TagRepository).save({
+		id: generateNanoId(),
 		name: name ?? randomName(),
 		...attributes,
 	});
+
+	if (workflow) {
+		const mappingRepository = Container.get(WorkflowTagMappingRepository);
+
+		const mapping = mappingRepository.create({ tagId: tag.id, workflowId: workflow.id });
+
+		await mappingRepository.save(mapping);
+	}
+
+	return tag;
 }
 
 // ----------------------------------
@@ -403,7 +431,7 @@ export async function createManyWorkflows(
 export async function createWorkflow(attributes: Partial<WorkflowEntity> = {}, user?: User) {
 	const { active, name, nodes, connections } = attributes;
 
-	const workflow = await Db.collections.Workflow.save({
+	const workflowEntity = Db.collections.Workflow.create({
 		active: active ?? false,
 		name: name ?? 'test workflow',
 		nodes: nodes ?? [
@@ -419,6 +447,8 @@ export async function createWorkflow(attributes: Partial<WorkflowEntity> = {}, u
 		connections: connections ?? {},
 		...attributes,
 	});
+
+	const workflow = await Db.collections.Workflow.save(workflowEntity);
 
 	if (user) {
 		await Db.collections.SharedWorkflow.save({
@@ -504,10 +534,13 @@ export async function getWorkflowSharing(workflow: WorkflowEntity) {
 // ----------------------------------
 
 export async function createVariable(key: string, value: string) {
-	return Db.collections.Variables.save({
+	const result = await Db.collections.Variables.save({
+		id: generateNanoId(),
 		key,
 		value,
 	});
+	await Container.get(VariablesService).updateCache();
+	return result;
 }
 
 export async function getVariableByKey(key: string) {
@@ -518,7 +551,7 @@ export async function getVariableByKey(key: string) {
 	});
 }
 
-export async function getVariableById(id: number) {
+export async function getVariableById(id: string) {
 	return Db.collections.Variables.findOne({
 		where: {
 			id,
@@ -565,7 +598,7 @@ export const getBootstrapDBOptions = (type: TestDBType) =>
 		name: type,
 		database: type,
 		...baseOptions(type),
-	} as const);
+	}) as const;
 
 const getDBOptions = (type: TestDBType, name: string) => ({
 	type,

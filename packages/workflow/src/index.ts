@@ -31,6 +31,7 @@ export {
 	sleep,
 	fileTypeFromMimeType,
 	assert,
+	removeCircularRefs,
 } from './utils';
 export {
 	isINodeProperties,
@@ -39,6 +40,7 @@ export {
 	isINodePropertiesList,
 	isINodePropertyCollectionList,
 	isINodePropertyOptionsList,
+	isResourceMapperValue,
 } from './type-guards';
 
 export { ExpressionExtensions } from './Extensions';
@@ -48,6 +50,11 @@ export type { DocMetadata, NativeDoc } from './Extensions';
 
 declare module 'http' {
 	export interface IncomingMessage {
+		contentType?: string;
+		encoding: BufferEncoding;
+		contentDisposition?: { type: string; filename?: string };
 		rawBody: Buffer;
+		readRawBody(): Promise<void>;
+		_body: boolean;
 	}
 }

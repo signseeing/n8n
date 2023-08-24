@@ -19,6 +19,7 @@ import type {
 	IHttpRequestOptions,
 	ILogger,
 	INode,
+	INodeCredentials,
 	INodeCredentialsDetails,
 	INodeType,
 	INodeTypeData,
@@ -29,10 +30,10 @@ import type {
 	IWorkflowBase,
 	IWorkflowExecuteAdditionalData,
 	NodeLoadingDetails,
+	WorkflowTestData,
 } from 'n8n-workflow';
 import { ICredentialsHelper, LoggerProxy, NodeHelpers, WorkflowHooks } from 'n8n-workflow';
 import { executeWorkflow } from './ExecuteWorkflow';
-import type { WorkflowTestData } from './types';
 
 import { FAKE_CREDENTIALS_DATA } from './FakeCredentialsMap';
 
@@ -181,6 +182,7 @@ export function WorkflowExecuteAdditionalData(
 		webhookTestBaseUrl: 'webhook-test',
 		userId: '123',
 		variables: {},
+		instanceBaseUrl: '',
 	};
 }
 
@@ -237,7 +239,7 @@ export function setup(testData: WorkflowTestData[] | WorkflowTestData) {
 	const nodes = [...new Set(testData.flatMap((data) => data.input.workflowData.nodes))];
 	const credentialNames = nodes
 		.filter((n) => n.credentials)
-		.flatMap(({ credentials }) => Object.keys(credentials!));
+		.flatMap(({ credentials }) => Object.keys(credentials as INodeCredentials));
 	for (const credentialName of credentialNames) {
 		const loadInfo = knownCredentials[credentialName];
 		if (!loadInfo) {
@@ -320,6 +322,15 @@ export const equalityTest = async (testData: WorkflowTestData, types: INodeTypes
 	const resultNodeData = getResultNodeData(result, testData);
 	resultNodeData.forEach(({ nodeName, resultData }) => {
 		const msg = `Equality failed for "${testData.description}" at node "${nodeName}"`;
+		resultData.forEach((item) => {
+			item?.forEach(({ binary }) => {
+				if (binary) {
+					// @ts-ignore
+					delete binary.data.data;
+					delete binary.data.directory;
+				}
+			});
+		});
 		return expect(resultData, msg).toEqual(testData.output.nodeData[nodeName]);
 	});
 
@@ -343,19 +354,31 @@ export const workflowToTests = (workflowFiles: string[]) => {
 	const testCases: WorkflowTestData[] = [];
 	for (const filePath of workflowFiles) {
 		const description = filePath.replace('.json', '');
-		const workflowData = readJsonFileSync<IWorkflowBase>(filePath);
+		const workflowData = readJsonFileSync<IWorkflowBase & Pick<WorkflowTestData, 'trigger'>>(
+			filePath,
+		);
+		const testDir = path.join(baseDir, path.dirname(filePath));
+		workflowData.nodes.forEach((node) => {
+			if (node.parameters) {
+				node.parameters = JSON.parse(
+					JSON.stringify(node.parameters).replace(/"C:\\\\Test\\\\(.*)"/, `"${testDir}/$1"`),
+				);
+			}
+		});
 		if (workflowData.pinData === undefined) {
 			throw new Error('Workflow data does not contain pinData');
 		}
 
 		const nodeData = preparePinData(workflowData.pinData);
-
 		delete workflowData.pinData;
+
+		const { trigger } = workflowData;
+		delete workflowData.trigger;
 
 		const input = { workflowData };
 		const output = { nodeData };
 
-		testCases.push({ description, input, output });
+		testCases.push({ description, input, output, trigger });
 	}
 	return testCases;
 };

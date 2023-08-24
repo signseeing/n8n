@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/stores/settings.store';
 import { useUsersStore } from '@/stores/users.store';
 import { getCurrentPlan, getCurrentUsage } from '@/api/cloudPlans';
 import { DateTime } from 'luxon';
+import { CLOUD_TRIAL_CHECK_INTERVAL } from '@/constants';
 
 const DEFAULT_STATE: CloudPlanState = {
 	data: null,
@@ -28,6 +29,11 @@ export const useCloudPlanStore = defineStore('cloudPlan', () => {
 		state.usage = data;
 	};
 
+	const reset = () => {
+		state.data = null;
+		state.usage = null;
+	};
+
 	const userIsTrialing = computed(() => state.data?.metadata?.group === 'trial');
 
 	const currentPlanData = computed(() => state.data);
@@ -45,7 +51,7 @@ export const useCloudPlanStore = defineStore('cloudPlan', () => {
 		return state.usage?.executions >= state.data?.monthlyExecutionsLimit;
 	});
 
-	const getOwnerCurrentPLan = async () => {
+	const getOwnerCurrentPlan = async () => {
 		const cloudUserId = settingsStore.settings.n8nMetadata?.userId;
 		const hasCloudPlan =
 			usersStore.currentUser?.isOwner && settingsStore.isCloudDeployment && cloudUserId;
@@ -53,7 +59,7 @@ export const useCloudPlanStore = defineStore('cloudPlan', () => {
 		state.loadingPlan = true;
 		let plan;
 		try {
-			plan = await getCurrentPlan(rootStore.getRestCloudApiContext, `${cloudUserId}`);
+			plan = await getCurrentPlan(rootStore.getRestApiContext);
 			state.data = plan;
 			state.loadingPlan = false;
 		} catch (error) {
@@ -70,14 +76,58 @@ export const useCloudPlanStore = defineStore('cloudPlan', () => {
 		return usage;
 	};
 
+	const usageLeft = computed(() => {
+		if (!state.data || !state.usage) return { workflowsLeft: -1, executionsLeft: -1 };
+
+		return {
+			workflowsLeft: state.data.activeWorkflowsLimit - state.usage.activeWorkflows,
+			executionsLeft: state.data.monthlyExecutionsLimit - state.usage.executions,
+		};
+	});
+
+	const trialDaysLeft = computed(() => {
+		if (!state.data?.expirationDate) return -1;
+
+		const differenceInMs = new Date().valueOf() - new Date(state.data.expirationDate).valueOf();
+
+		const differenceInDays = Math.floor(differenceInMs / (1000 * 60 * 60 * 24));
+
+		return Math.ceil(differenceInDays);
+	});
+
+	const startPollingInstanceUsageData = () => {
+		const interval = setInterval(async () => {
+			try {
+				await getInstanceCurrentUsage();
+				if (trialExpired.value || allExecutionsUsed.value) {
+					clearTimeout(interval);
+					return;
+				}
+			} catch {}
+		}, CLOUD_TRIAL_CHECK_INTERVAL);
+	};
+
+	const checkForCloudPlanData = async (): Promise<void> => {
+		try {
+			await getOwnerCurrentPlan();
+			if (!userIsTrialing.value) return;
+			await getInstanceCurrentUsage();
+			startPollingInstanceUsageData();
+		} catch {}
+	};
+
 	return {
 		state,
-		getOwnerCurrentPLan,
+		getOwnerCurrentPlan,
 		getInstanceCurrentUsage,
+		usageLeft,
+		trialDaysLeft,
 		userIsTrialing,
 		currentPlanData,
 		currentUsageData,
 		trialExpired,
 		allExecutionsUsed,
+		reset,
+		checkForCloudPlanData,
 	};
 });
