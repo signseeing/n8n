@@ -18210,7 +18210,7 @@ packages:
   /rrule@2.7.2:
     resolution: {integrity: sha512-NkBsEEB6FIZOZ3T8frvEBOB243dm46SPufpDckY/Ap/YH24V1zLeMmDY8OA10lk452NdrF621+ynDThE7FQU2A==}
     dependencies:
-      tslib: 2.5.0
+      tslib: 2.6.1
     dev: false
 
   /rss-parser@3.12.0:
