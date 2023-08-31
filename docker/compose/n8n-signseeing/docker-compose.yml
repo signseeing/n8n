@@ -34,6 +34,7 @@ services:
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=90
       - NODE_FUNCTION_ALLOW_EXTERNAL=rrule
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - n8n_data:/home/node/.n8n
