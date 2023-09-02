@@ -38,6 +38,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - n8n_data:/home/node/.n8n
+      - n8n_upload:/home/upload
 networks:
   my-proxy-net:
     external:
@@ -46,3 +47,6 @@ volumes:
   n8n_data:
     external: true
     name: n8n_data
+  n8n_upload:
+    external: true
+    name: n8n_upload
