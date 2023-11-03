@@ -1,3 +1,6 @@
+import { Container, Service } from 'typedi';
+import type { PullResult } from 'simple-git';
+import express from 'express';
 import { Authorized, Get, Post, Patch, RestController } from '@/decorators';
 import {
 	sourceControlLicensedMiddleware,
@@ -10,10 +13,7 @@ import type { SourceControlPreferences } from './types/sourceControlPreferences'
 import type { SourceControlledFile } from './types/sourceControlledFile';
 import { SOURCE_CONTROL_API_ROOT, SOURCE_CONTROL_DEFAULT_BRANCH } from './constants';
 import { BadRequestError } from '@/ResponseHelper';
-import type { PullResult } from 'simple-git';
-import express from 'express';
 import type { ImportResult } from './types/importResult';
-import Container, { Service } from 'typedi';
 import { InternalHooks } from '../../InternalHooks';
 import { getRepoType } from './sourceControlHelper.ee';
 import { SourceControlGetStatus } from './types/sourceControlGetStatus';
@@ -118,7 +118,7 @@ export class SourceControlController {
 			) {
 				await this.sourceControlService.setBranch(sanitizedPreferences.branchName);
 			}
-			if (sanitizedPreferences.branchColor || sanitizedPreferences.branchReadOnly !== undefined) {
+			if (sanitizedPreferences.branchColor ?? sanitizedPreferences.branchReadOnly !== undefined) {
 				await this.sourceControlPreferencesService.setPreferences(
 					{
 						branchColor: sanitizedPreferences.branchColor,
@@ -237,9 +237,12 @@ export class SourceControlController {
 
 	@Authorized(['global', 'owner'])
 	@Post('/generate-key-pair', { middlewares: [sourceControlLicensedMiddleware] })
-	async generateKeyPair(): Promise<SourceControlPreferences> {
+	async generateKeyPair(
+		req: SourceControlRequest.GenerateKeyPair,
+	): Promise<SourceControlPreferences> {
 		try {
-			const result = await this.sourceControlPreferencesService.generateAndSaveKeyPair();
+			const keyPairType = req.body.keyGeneratorType;
+			const result = await this.sourceControlPreferencesService.generateAndSaveKeyPair(keyPairType);
 			return result;
 		} catch (error) {
 			throw new BadRequestError((error as { message: string }).message);

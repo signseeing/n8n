@@ -27,8 +27,10 @@ import type { User } from '@db/entities/User';
 import { N8N_VERSION } from '@/constants';
 import { NodeTypes } from './NodeTypes';
 import type { ExecutionMetadata } from '@db/entities/ExecutionMetadata';
-import { ExecutionRepository } from '@db/repositories';
 import { RoleService } from './services/role.service';
+import type { EventPayloadWorkflow } from './eventbus/EventMessageClasses/EventMessageWorkflow';
+import { determineFinalExecutionStatus } from './executionLifecycleHooks/shared/sharedHookFunctions';
+import { InstanceSettings } from 'n8n-core';
 
 function userToPayload(user: User): {
 	userId: string;
@@ -48,22 +50,12 @@ function userToPayload(user: User): {
 
 @Service()
 export class InternalHooks implements IInternalHooksClass {
-	private instanceId: string;
-
-	public get telemetryInstanceId(): string {
-		return this.instanceId;
-	}
-
-	public get telemetryInstance(): Telemetry {
-		return this.telemetry;
-	}
-
 	constructor(
 		private telemetry: Telemetry,
 		private nodeTypes: NodeTypes,
 		private roleService: RoleService,
-		private executionRepository: ExecutionRepository,
 		eventsService: EventsService,
+		private readonly instanceSettings: InstanceSettings,
 	) {
 		eventsService.on('telemetry.onFirstProductionWorkflowSuccess', async (metrics) =>
 			this.onFirstProductionWorkflowSuccess(metrics),
@@ -73,9 +65,7 @@ export class InternalHooks implements IInternalHooksClass {
 		);
 	}
 
-	async init(instanceId: string) {
-		this.instanceId = instanceId;
-		this.telemetry.setInstanceId(instanceId);
+	async init() {
 		await this.telemetry.init();
 	}
 
@@ -95,6 +85,8 @@ export class InternalHooks implements IInternalHooksClass {
 			smtp_set_up: diagnosticInfo.smtp_set_up,
 			ldap_allowed: diagnosticInfo.ldap_allowed,
 			saml_enabled: diagnosticInfo.saml_enabled,
+			license_plan_name: diagnosticInfo.licensePlanName,
+			license_tenant_id: diagnosticInfo.licenseTenantId,
 		};
 
 		return Promise.all([
@@ -240,23 +232,32 @@ export class InternalHooks implements IInternalHooksClass {
 
 	async onWorkflowBeforeExecute(
 		executionId: string,
-		data: IWorkflowExecutionDataProcess,
+		data: IWorkflowExecutionDataProcess | IWorkflowBase,
 	): Promise<void> {
-		void Promise.all([
-			this.executionRepository.updateExistingExecution(executionId, {
-				status: 'running',
-			}),
-			eventBus.sendWorkflowEvent({
-				eventName: 'n8n.workflow.started',
-				payload: {
-					executionId,
-					userId: data.userId,
-					workflowId: data.workflowData.id?.toString(),
-					isManual: data.executionMode === 'manual',
-					workflowName: data.workflowData.name,
-				},
-			}),
-		]);
+		let payload: EventPayloadWorkflow;
+		// this hook is called slightly differently depending on whether it's from a worker or the main instance
+		// in the worker context, meaning in queue mode, only IWorkflowBase is available
+		if ('executionData' in data) {
+			payload = {
+				executionId,
+				userId: data.userId ?? undefined,
+				workflowId: data.workflowData.id?.toString(),
+				isManual: data.executionMode === 'manual',
+				workflowName: data.workflowData.name,
+			};
+		} else {
+			payload = {
+				executionId,
+				userId: undefined,
+				workflowId: (data as IWorkflowBase).id?.toString(),
+				isManual: false,
+				workflowName: (data as IWorkflowBase).name,
+			};
+		}
+		void eventBus.sendWorkflowEvent({
+			eventName: 'n8n.workflow.started',
+			payload,
+		});
 	}
 
 	async onWorkflowCrashed(
@@ -300,7 +301,7 @@ export class InternalHooks implements IInternalHooksClass {
 
 		const promises = [];
 
-		const properties: IExecutionTrackProperties = {
+		const telemetryProperties: IExecutionTrackProperties = {
 			workflow_id: workflow.id,
 			is_manual: false,
 			version_cli: N8N_VERSION,
@@ -308,39 +309,33 @@ export class InternalHooks implements IInternalHooksClass {
 		};
 
 		if (userId) {
-			properties.user_id = userId;
+			telemetryProperties.user_id = userId;
 		}
 
 		if (runData?.data.resultData.error?.message?.includes('canceled')) {
 			runData.status = 'canceled';
 		}
 
-		properties.success = !!runData?.finished;
+		telemetryProperties.success = !!runData?.finished;
 
-		let executionStatus: ExecutionStatus;
-		if (runData?.status === 'crashed') {
-			executionStatus = 'crashed';
-		} else if (runData?.status === 'waiting' || runData?.data?.waitTill) {
-			executionStatus = 'waiting';
-		} else if (runData?.status === 'canceled') {
-			executionStatus = 'canceled';
-		} else {
-			executionStatus = properties.success ? 'success' : 'failed';
-		}
+		// const executionStatus: ExecutionStatus = runData?.status ?? 'unknown';
+		const executionStatus: ExecutionStatus = runData
+			? determineFinalExecutionStatus(runData)
+			: 'unknown';
 
 		if (runData !== undefined) {
-			properties.execution_mode = runData.mode;
-			properties.is_manual = runData.mode === 'manual';
+			telemetryProperties.execution_mode = runData.mode;
+			telemetryProperties.is_manual = runData.mode === 'manual';
 
 			let nodeGraphResult: INodesGraphResult | null = null;
 
-			if (!properties.success && runData?.data.resultData.error) {
-				properties.error_message = runData?.data.resultData.error.message;
+			if (!telemetryProperties.success && runData?.data.resultData.error) {
+				telemetryProperties.error_message = runData?.data.resultData.error.message;
 				let errorNodeName =
 					'node' in runData?.data.resultData.error
 						? runData?.data.resultData.error.node?.name
 						: undefined;
-				properties.error_node_type =
+				telemetryProperties.error_node_type =
 					'node' in runData?.data.resultData.error
 						? runData?.data.resultData.error.node?.type
 						: undefined;
@@ -352,23 +347,23 @@ export class InternalHooks implements IInternalHooksClass {
 					);
 
 					if (lastNode !== undefined) {
-						properties.error_node_type = lastNode.type;
+						telemetryProperties.error_node_type = lastNode.type;
 						errorNodeName = lastNode.name;
 					}
 				}
 
-				if (properties.is_manual) {
+				if (telemetryProperties.is_manual) {
 					nodeGraphResult = TelemetryHelpers.generateNodesGraph(workflow, this.nodeTypes);
-					properties.node_graph = nodeGraphResult.nodeGraph;
-					properties.node_graph_string = JSON.stringify(nodeGraphResult.nodeGraph);
+					telemetryProperties.node_graph = nodeGraphResult.nodeGraph;
+					telemetryProperties.node_graph_string = JSON.stringify(nodeGraphResult.nodeGraph);
 
 					if (errorNodeName) {
-						properties.error_node_id = nodeGraphResult.nameIndices[errorNodeName];
+						telemetryProperties.error_node_id = nodeGraphResult.nameIndices[errorNodeName];
 					}
 				}
 			}
 
-			if (properties.is_manual) {
+			if (telemetryProperties.is_manual) {
 				if (!nodeGraphResult) {
 					nodeGraphResult = TelemetryHelpers.generateNodesGraph(workflow, this.nodeTypes);
 				}
@@ -386,10 +381,10 @@ export class InternalHooks implements IInternalHooksClass {
 					workflow_id: workflow.id,
 					status: executionStatus,
 					executionStatus: runData?.status ?? 'unknown',
-					error_message: properties.error_message as string,
-					error_node_type: properties.error_node_type,
-					node_graph_string: properties.node_graph_string as string,
-					error_node_id: properties.error_node_id as string,
+					error_message: telemetryProperties.error_message as string,
+					error_node_type: telemetryProperties.error_node_type,
+					node_graph_string: telemetryProperties.node_graph_string as string,
+					error_node_id: telemetryProperties.error_node_id as string,
 					webhook_domain: null,
 					sharing_role: userRole,
 				};
@@ -428,39 +423,34 @@ export class InternalHooks implements IInternalHooksClass {
 			}
 		}
 
+		const sharedEventPayload: EventPayloadWorkflow = {
+			executionId,
+			success: telemetryProperties.success,
+			userId: telemetryProperties.user_id,
+			workflowId: workflow.id,
+			isManual: telemetryProperties.is_manual,
+			workflowName: workflow.name,
+			metaData: runData?.data?.resultData?.metadata,
+		};
 		promises.push(
-			properties.success
+			telemetryProperties.success
 				? eventBus.sendWorkflowEvent({
 						eventName: 'n8n.workflow.success',
-						payload: {
-							executionId,
-							success: properties.success,
-							userId: properties.user_id,
-							workflowId: properties.workflow_id,
-							isManual: properties.is_manual,
-							workflowName: workflow.name,
-							metaData: runData?.data?.resultData?.metadata,
-						},
+						payload: sharedEventPayload,
 				  })
 				: eventBus.sendWorkflowEvent({
 						eventName: 'n8n.workflow.failed',
 						payload: {
-							executionId,
-							success: properties.success,
-							userId: properties.user_id,
-							workflowId: properties.workflow_id,
+							...sharedEventPayload,
 							lastNodeExecuted: runData?.data.resultData.lastNodeExecuted,
-							errorNodeType: properties.error_node_type,
-							errorNodeId: properties.error_node_id?.toString(),
-							errorMessage: properties.error_message?.toString(),
-							isManual: properties.is_manual,
-							workflowName: workflow.name,
-							metaData: runData?.data?.resultData?.metadata,
+							errorNodeType: telemetryProperties.error_node_type,
+							errorNodeId: telemetryProperties.error_node_id?.toString(),
+							errorMessage: telemetryProperties.error_message?.toString(),
 						},
 				  }),
 		);
 
-		void Promise.all([...promises, this.telemetry.trackWorkflowExecution(properties)]);
+		void Promise.all([...promises, this.telemetry.trackWorkflowExecution(telemetryProperties)]);
 	}
 
 	async onWorkflowSharingUpdate(workflowId: string, userId: string, userList: string[]) {
@@ -806,7 +796,7 @@ export class InternalHooks implements IInternalHooksClass {
 				user_id: userCreatedCredentialsData.user.id,
 				credential_type: userCreatedCredentialsData.credential_type,
 				credential_id: userCreatedCredentialsData.credential_id,
-				instance_id: this.instanceId,
+				instance_id: this.instanceSettings.instanceId,
 			}),
 		]);
 	}
@@ -840,7 +830,7 @@ export class InternalHooks implements IInternalHooksClass {
 				user_id_sharer: userSharedCredentialsData.user_id_sharer,
 				user_ids_sharees_added: userSharedCredentialsData.user_ids_sharees_added,
 				sharees_removed: userSharedCredentialsData.sharees_removed,
-				instance_id: this.instanceId,
+				instance_id: this.instanceSettings.instanceId,
 			}),
 		]);
 	}

@@ -35,6 +35,7 @@ describe('Two-factor authentication', () => {
 			expect(err.message).to.include('Not logged in');
 			return false;
 		});
+		cy.intercept('GET', '/rest/mfa/qr').as('getMfaQrCode');
 	});
 
 	it('Should be able to login with MFA token', () => {

@@ -1,7 +1,10 @@
 import { LicenseManager } from '@n8n_io/license-sdk';
+import { InstanceSettings } from 'n8n-core';
 import config from '@/config';
 import { License } from '@/License';
+import { Logger } from '@/Logger';
 import { N8N_VERSION } from '@/constants';
+import { mockInstance } from '../integration/shared/utils';
 
 jest.mock('@n8n_io/license-sdk');
 
@@ -21,21 +24,47 @@ describe('License', () => {
 	});
 
 	let license: License;
+	const logger = mockInstance(Logger);
+	const instanceSettings = mockInstance(InstanceSettings, { instanceId: MOCK_INSTANCE_ID });
 
 	beforeEach(async () => {
-		license = new License();
-		await license.init(MOCK_INSTANCE_ID);
+		license = new License(logger, instanceSettings);
+		await license.init();
 	});
 
 	test('initializes license manager', async () => {
 		expect(LicenseManager).toHaveBeenCalledWith({
 			autoRenewEnabled: true,
 			autoRenewOffset: MOCK_RENEW_OFFSET,
+			offlineMode: false,
+			renewOnInit: true,
 			deviceFingerprint: expect.any(Function),
 			productIdentifier: `n8n-${N8N_VERSION}`,
-			logger: expect.anything(),
+			logger,
 			loadCertStr: expect.any(Function),
 			saveCertStr: expect.any(Function),
+			onFeatureChange: expect.any(Function),
+			collectUsageMetrics: expect.any(Function),
+			server: MOCK_SERVER_URL,
+			tenantId: 1,
+		});
+	});
+
+	test('initializes license manager for worker', async () => {
+		license = new License(logger, instanceSettings);
+		await license.init('worker');
+		expect(LicenseManager).toHaveBeenCalledWith({
+			autoRenewEnabled: false,
+			autoRenewOffset: MOCK_RENEW_OFFSET,
+			offlineMode: true,
+			renewOnInit: false,
+			deviceFingerprint: expect.any(Function),
+			productIdentifier: `n8n-${N8N_VERSION}`,
+			logger,
+			loadCertStr: expect.any(Function),
+			saveCertStr: expect.any(Function),
+			onFeatureChange: expect.any(Function),
+			collectUsageMetrics: expect.any(Function),
 			server: MOCK_SERVER_URL,
 			tenantId: 1,
 		});
